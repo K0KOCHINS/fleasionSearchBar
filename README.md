@@ -144,4 +144,21 @@ Then run Step 4. The search bar works, but its placeholder text shows a raw labe
 
 ---
 
-Based on [Fleasion](https://github.com/fleasion/Fleasion). This is an unofficial add-on and isn't made by the Fleasion team.
+## Credits
+
+**Fleasion is made by the Fleasion team. Full credit for Fleasion itself goes to them.**
+
+- **Fleasion:** https://github.com/fleasion/Fleasion
+- **Discord:** https://discord.com/invite/pdtce585f6
+
+From Fleasion's own [contributors list](https://github.com/fleasion/Fleasion/blob/main/CONTRIBUTORS.md):
+
+- **@8ar__**, **@dis_spencer**, **@1_v** (Sky): code
+- **@Blockce**, **@0100152000022000** (Sky 2), **@emk530**, **@yeha.** (Leah): logic and contributions
+- Donators: for keeping the passion going
+
+This repo only adds the config search bar on top of their work. It's an **unofficial add-on**, not made or endorsed by the Fleasion team. If something breaks in Fleasion itself, report it to them; if the search bar breaks, open an issue here.
+
+## License
+
+Fleasion is licensed under the [GNU GPL v3.0](https://github.com/fleasion/Fleasion/blob/main/LICENSE). This add-on modifies Fleasion's code, so it's released under the same **GPL v3.0** license. See [`LICENSE`](LICENSE).
