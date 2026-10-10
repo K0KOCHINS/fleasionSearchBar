@@ -1,0 +1,94 @@
+name: Build Fleasion with Search Bar
+
+# Builds a Windows Fleasion .exe that includes the config search bar and
+# publishes it on this repo's Releases page, so nobody has to use PowerShell.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - fleasion-config-search.patch
+      - .github/workflows/build.yml
+
+permissions:
+  contents: write
+
+env:
+  PYTHONHASHSEED: '0'
+  SOURCE_DATE_EPOCH: '0'
+  TZ: UTC
+
+jobs:
+  build:
+    name: Build Windows .exe
+    runs-on: windows-latest
+    steps:
+      - name: Get this repo (for the patch)
+        uses: actions/checkout@v4
+        with:
+          path: addon
+
+      - name: Get Fleasion source
+        uses: actions/checkout@v4
+        with:
+          repository: fleasion/Fleasion
+          path: fleasion
+          fetch-depth: 0
+
+      - name: Add the search bar
+        shell: pwsh
+        working-directory: fleasion
+        run: |
+          git apply ../addon/fleasion-config-search.patch
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host 'Latest Fleasion changed; using the version this patch was made for.'
+            git checkout 7f4c6c1
+            git apply ../addon/fleasion-config-search.patch
+            if ($LASTEXITCODE -ne 0) { throw 'The search bar patch could not be applied.' }
+          }
+          "FLEASION_SHA=$(git rev-parse --short HEAD)" >> $env:GITHUB_ENV
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Set up Python
+        working-directory: fleasion
+        run: uv python install
+
+      - name: Install dependencies
+        working-directory: fleasion
+        run: uv sync --locked --group dev
+
+      - name: Install UPX (makes the .exe smaller)
+        continue-on-error: true
+        run: choco install upx -y --no-progress
+
+      - name: Build the .exe
+        working-directory: fleasion
+        run: uv run build
+
+      - name: Rename the .exe
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem fleasion/dist/Fleasion-v*-Windows.exe | Select-Object -First 1
+          if (-not $exe) { throw 'Build did not produce a Windows .exe.' }
+          $version = $exe.BaseName -replace '^Fleasion-v', '' -replace '-Windows$', ''
+          New-Item -ItemType Directory -Force out | Out-Null
+          Copy-Item $exe.FullName "out/Fleasion-SearchBar-v$version-Windows.exe"
+          "FLEASION_VERSION=$version" >> $env:GITHUB_ENV
+
+      - name: Publish to Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Fleasion ${{ env.FLEASION_VERSION }} + Search Bar
+          make_latest: true
+          files: out/*.exe
+          body: |
+            **Download the `.exe` below and double-click it.** No PowerShell, Git or Python needed.
+
+            Fleasion ${{ env.FLEASION_VERSION }} (fleasion/Fleasion@${{ env.FLEASION_SHA }}) with the config search bar added.
+
+            Fleasion is made by the Fleasion team: https://github.com/fleasion/Fleasion
+            This is an unofficial add-on, licensed under GPL v3.0 like Fleasion.
