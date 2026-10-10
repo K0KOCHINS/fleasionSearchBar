@@ -1,0 +1,500 @@
+From 117b606f4c7e0eab034608e2cf458079777618ce Mon Sep 17 00:00:00 2001
+From: RJ <rsteinhoff@gmail.com>
+Date: Fri, 9 Oct 2026 20:20:29 -0400
+Subject: [PATCH] feat(replacer): add search bar to the enabled configs menu
+
+Type to filter configs by name (case-insensitive, every word must match).
+Enter toggles the first match, Escape clears the search, and the popup
+shrinks to fit the results.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WpEHogr3Soi2Zbbp4iTvCd
+---
+ src/fleasion/gui/replacer_config.py | 163 ++++++++++++++++++++++++++--
+ src/fleasion/translations/de.py     |   2 +
+ src/fleasion/translations/en.py     |   2 +
+ src/fleasion/translations/es.py     |   2 +
+ src/fleasion/translations/fr.py     |   2 +
+ src/fleasion/translations/kk.py     |   2 +
+ src/fleasion/translations/pl.py     |   2 +
+ src/fleasion/translations/pt.py     |   2 +
+ src/fleasion/translations/ru.py     |   2 +
+ src/fleasion/translations/tr.py     |   2 +
+ src/fleasion/translations/zh.py     |   2 +
+ tests/test_replacer_config_menu.py  |  71 ++++++++++++
+ 12 files changed, 243 insertions(+), 11 deletions(-)
+
+diff --git a/src/fleasion/gui/replacer_config.py b/src/fleasion/gui/replacer_config.py
+index 8dfbfbb..80802d9 100644
+--- a/src/fleasion/gui/replacer_config.py
++++ b/src/fleasion/gui/replacer_config.py
+@@ -11,7 +11,7 @@ from pathlib import Path
+ from typing import Union
+ from urllib.error import URLError
+ 
+-from PyQt6.QtCore import QByteArray, QRect, QSize, Qt, pyqtSignal
++from PyQt6.QtCore import QByteArray, QEvent, QRect, QSize, Qt, QTimer, pyqtSignal
+ from PyQt6.QtGui import (
+     QBrush,
+     QColor,
+@@ -21,6 +21,7 @@ from PyQt6.QtGui import (
+     QPalette,
+     QPen,
+     QPixmap,
++    QShowEvent,
+ )
+ from PyQt6.QtWidgets import (
+     QAbstractItemView,
+@@ -472,13 +473,22 @@ class _ScrollableConfigMenu(QMenu):
+     item_selected = pyqtSignal(str)
+     item_toggled = pyqtSignal(str, bool)
+ 
+-    def __init__(self, parent=None, *, checkable: bool = False):
++    def __init__(self, parent=None, *, checkable: bool = False, searchable: bool = False):
+         super().__init__(parent)
+         self._checkable = checkable
+         self._minimum_width = 0
+         self._natural_content_size = QSize(0, 0)
++        self._content_height = 0
++        self._max_height: int | None = None
++        self._max_width: int | None = None
+         self._opening_release_deadline = 0.0
+         self.item_widgets: dict[str, QWidget] = {}
++        self._no_match_label: QLabel | None = None
++        self.search_edit: QLineEdit | None = None
++        self._search_container: QWidget | None = None
++
++        if searchable:
++            self._build_search_box()
+ 
+         self.scroll_area = QScrollArea()
+         self.scroll_area.setObjectName('ConfigMenuScrollArea')
+@@ -494,12 +504,108 @@ class _ScrollableConfigMenu(QMenu):
+         self.addAction(self._content_action)
+         self.aboutToShow.connect(self._guard_opening_mouse_release)
+ 
++    def _build_search_box(self) -> None:
++        """Add a filter box above the config rows."""
++        container = QWidget()
++        container.setObjectName('ConfigMenuSearchContainer')
++        layout = QVBoxLayout(container)
++        layout.setContentsMargins(6, 6, 6, 4)
++        layout.setSpacing(0)
++
++        edit = QLineEdit()
++        edit.setObjectName('ConfigMenuSearch')
++        edit.setPlaceholderText(tr('ui.gui.replacer_config.search_configs'))
++        edit.setClearButtonEnabled(True)
++        edit.textChanged.connect(self._apply_filter)
++        edit.installEventFilter(self)
++        layout.addWidget(edit)
++
++        self.search_edit = edit
++        self._search_container = container
++        search_action = QWidgetAction(self)
++        search_action.setDefaultWidget(container)
++        self.addAction(search_action)
++        # Each open starts with an empty search
++        self.aboutToShow.connect(self.clear_search)
++
++    def clear_search(self) -> None:
++        """Reset the search text so every config is listed again."""
++        if self.search_edit is not None and self.search_edit.text():
++            self.search_edit.clear()
++
++    def _search_height(self) -> int:
++        if self._search_container is None:
++            return 0
++        return self._search_container.sizeHint().height()
++
+     def sizeHint(self):  # noqa: N802
+         """Use the embedded scroll area's size without rebuilding the action."""
+         if self._natural_content_size.isValid() and self.scroll_area.size().isValid():
+-            return self.scroll_area.size()
++            size = self.scroll_area.size()
++            return QSize(size.width(), size.height() + self._search_height())
+         return super().sizeHint()
+ 
++    def showEvent(self, a0: QShowEvent | None) -> None:  # noqa: N802
++        super().showEvent(a0)
++        if self.search_edit is not None:
++            # Defer so the popup owns keyboard focus before the box claims it
++            QTimer.singleShot(0, self._focus_search)
++
++    def _focus_search(self) -> None:
++        if self.search_edit is not None and self.isVisible():
++            self.search_edit.setFocus(Qt.FocusReason.PopupFocusReason)
++
++    @staticmethod
++    def _matches(name: str, terms: list[str]) -> bool:
++        lowered = name.casefold()
++        return all(term in lowered for term in terms)
++
++    def visible_names(self) -> list[str]:
++        """Names of the config rows shown under the current search."""
++        return [name for name, row in self.item_widgets.items() if not row.isHidden()]
++
++    def _apply_filter(self, *_args: object) -> None:
++        """Show only the rows whose name contains every search word."""
++        if not self.item_widgets:
++            return
++        text = self.search_edit.text() if self.search_edit is not None else ''
++        terms = text.casefold().split()
++        visible = 0
++        for name, row in self.item_widgets.items():
++            match = self._matches(name, terms)
++            row.setHidden(not match)
++            visible += int(match)
++
++        if self._no_match_label is not None:
++            self._no_match_label.setHidden(visible > 0)
++        self._content_height = max(1, visible) * _CONFIG_MENU_ROW_HEIGHT_PX
++
++        anchored_above = False
++        old_bottom = 0
++        owner = self.parentWidget()
++        if self.isVisible() and owner is not None:
++            # A popup that opened above its button keeps its bottom edge in place
++            old_bottom = self.geometry().bottom()
++            anchored_above = old_bottom <= owner.mapToGlobal(owner.rect().topLeft()).y()
++
++        self._set_popup_content_size(
++            self._max_height if self._max_height is not None else self._content_height,
++            max_width=self._max_width,
++        )
++        self._reset_action_geometry()
++
++        if anchored_above:
++            geometry = self.geometry()
++            geometry.moveBottom(old_bottom)
++            self.setGeometry(geometry)
++
++    def _toggle_first_match(self) -> None:
++        """Toggle (or pick) the first visible row, for Enter in the search box."""
++        for row in self.item_widgets.values():
++            if not row.isHidden() and isinstance(row, _ConfigMenuRow):
++                row.click()
++                return
++
+     def set_entries(self, entries: list[dict], *, minimum_width: int = 0):
+         """Replace the displayed config rows."""
+         old_container = self.scroll_area.takeWidget()
+@@ -508,6 +614,7 @@ class _ScrollableConfigMenu(QMenu):
+ 
+         self._minimum_width = max(0, minimum_width)
+         self.item_widgets.clear()
++        self._no_match_label = None
+ 
+         container = QWidget()
+         container.setObjectName('ConfigMenuContainer')
+@@ -537,12 +644,25 @@ class _ScrollableConfigMenu(QMenu):
+             row.setFixedHeight(_CONFIG_MENU_ROW_HEIGHT_PX)
+             row.installEventFilter(self)
+             layout.addWidget(row)
++        elif self.search_edit is not None:
++            label = QLabel(tr('ui.gui.replacer_config.no_matching_configs'))
++            label.setStyleSheet('padding: 5px 8px; color: palette(placeholder-text);')
++            label.setFixedHeight(_CONFIG_MENU_ROW_HEIGHT_PX)
++            label.installEventFilter(self)
++            label.setHidden(True)
++            layout.addWidget(label)
++            self._no_match_label = label
++        layout.addStretch(1)
+ 
+         self.scroll_area.setWidget(container)
+         container.adjustSize()
++        # Width comes from the full list so filtering never makes the popup jump sideways
+         self._natural_content_size = container.sizeHint()
+-        self._set_popup_content_size(self._natural_content_size.height())
++        self._content_height = self._natural_content_size.height()
++        self._set_popup_content_size(self._content_height)
+         self._reset_action_geometry()
++        if self.search_edit is not None and self.search_edit.text():
++            self._apply_filter()
+ 
+     def constrain_to_button(self, button: QPushButton):
+         """Bound the popup to the screen containing the owning button."""
+@@ -570,19 +690,24 @@ class _ScrollableConfigMenu(QMenu):
+             space_above = anchor_y - available_geometry.top()
+             available_height = max(space_below, space_above)
+ 
+-        max_height = max(1, available_height - _CONFIG_MENU_SCREEN_MARGIN_PX)
++        max_height = max(
++            1, available_height - _CONFIG_MENU_SCREEN_MARGIN_PX - self._search_height()
++        )
+         max_width = max(1, available_geometry.width() - _CONFIG_MENU_SCREEN_MARGIN_PX)
++        self._max_height = max_height
++        self._max_width = max_width
+         self._set_popup_content_size(max_height, max_width=max_width)
+         self._reset_action_geometry()
+ 
+     def _set_popup_content_size(self, max_height: int, *, max_width: int | None = None):
+         natural = self._natural_content_size
+-        if natural.height() <= 0:
++        content_height = self._content_height or natural.height()
++        if content_height <= 0:
+             return
+ 
+-        height = min(natural.height(), max(1, max_height))
++        height = min(content_height, max(1, max_height))
+         scrollbar_width = self.scroll_area.verticalScrollBar().sizeHint().width()
+-        needs_scrollbar = natural.height() > height
++        needs_scrollbar = content_height > height
+         width = max(natural.width(), self._minimum_width)
+         if needs_scrollbar:
+             width += scrollbar_width
+@@ -596,6 +721,8 @@ class _ScrollableConfigMenu(QMenu):
+             widget.setFixedWidth(viewport_width)
+         self.scroll_area.setFixedSize(max(1, width), height)
+         self.scroll_area.updateGeometry()
++        if self._search_container is not None:
++            self._search_container.setFixedWidth(max(1, width))
+         self.updateGeometry()
+ 
+     def _reset_action_geometry(self):
+@@ -622,8 +749,20 @@ class _ScrollableConfigMenu(QMenu):
+         return False
+ 
+     def eventFilter(self, obj, event):
+-        from PyQt6.QtCore import QEvent
+-
++        if (
++            obj is self.search_edit
++            and self.search_edit is not None
++            and event.type() == QEvent.Type.KeyPress
++        ):
++            key = event.key()
++            if key in {Qt.Key.Key_Return, Qt.Key.Key_Enter}:
++                # Keep Enter from reaching QMenu, which would close the popup
++                self._toggle_first_match()
++                return True
++            if key == Qt.Key.Key_Escape and self.search_edit.text():
++                # First Escape clears the search, the next one closes the popup
++                self.search_edit.clear()
++                return True
+         if event.type() == QEvent.Type.MouseButtonPress:
+             self._opening_release_deadline = 0.0
+         elif (
+@@ -943,7 +1082,9 @@ class ReplacerConfigWindow(QDialog):
+         row1.addWidget(enabled_label)
+ 
+         self.enabled_menu_btn = QPushButton(tr('ui.gui.replacer_config.select'))
+-        self.enabled_menu = _ScrollableConfigMenu(self.enabled_menu_btn, checkable=True)
++        self.enabled_menu = _ScrollableConfigMenu(
++            self.enabled_menu_btn, checkable=True, searchable=True
++        )
+         self.enabled_menu.aboutToShow.connect(self._rebuild_enabled_menu)
+         self.enabled_menu.item_toggled.connect(self._on_config_toggle)
+         self.enabled_menu_btn.setMenu(self.enabled_menu)
+diff --git a/src/fleasion/translations/de.py b/src/fleasion/translations/de.py
+index 731c1ca..a0d7333 100644
+--- a/src/fleasion/translations/de.py
++++ b/src/fleasion/translations/de.py
+@@ -1645,6 +1645,8 @@ GERMAN: dict[str, str] = {
+     'ui.gui.replacer_config.new_name': 'Neuer Name:',
+     'ui.gui.replacer_config.no_configs': 'Keine Konfigurationen',
+     'ui.gui.replacer_config.no_configs_enabled': 'Keine Konfiguration aktiviert',
++    'ui.gui.replacer_config.no_matching_configs': 'Keine passenden Konfigurationen',
++    'ui.gui.replacer_config.search_configs': 'Konfigurationen suchen...',
+     'ui.gui.replacer_config.ok': 'OK',
+     'ui.gui.replacer_config.open_configs': 'Konfigurationen öffnen',
+     'ui.gui.replacer_config.optional_profile_name': 'Optionaler Profilname',
+diff --git a/src/fleasion/translations/en.py b/src/fleasion/translations/en.py
+index 3a5c7ad..ce2fba5 100644
+--- a/src/fleasion/translations/en.py
++++ b/src/fleasion/translations/en.py
+@@ -1645,6 +1645,8 @@ ENGLISH: dict[str, str] = {
+     'ui.gui.replacer_config.new_name': 'New name:',
+     'ui.gui.replacer_config.no_configs': 'No configs',
+     'ui.gui.replacer_config.no_configs_enabled': 'No Configs Enabled',
++    'ui.gui.replacer_config.no_matching_configs': 'No matching configs',
++    'ui.gui.replacer_config.search_configs': 'Search configs...',
+     'ui.gui.replacer_config.ok': 'OK',
+     'ui.gui.replacer_config.open_configs': 'Open Configs',
+     'ui.gui.replacer_config.optional_profile_name': 'Optional profile name',
+diff --git a/src/fleasion/translations/es.py b/src/fleasion/translations/es.py
+index d43f068..6963593 100644
+--- a/src/fleasion/translations/es.py
++++ b/src/fleasion/translations/es.py
+@@ -1645,6 +1645,8 @@ SPANISH: dict[str, str] = {
+     'ui.gui.replacer_config.new_name': 'Nuevo nombre:',
+     'ui.gui.replacer_config.no_configs': 'Sin configuraciones',
+     'ui.gui.replacer_config.no_configs_enabled': 'Sin configuraciones habilitadas',
++    'ui.gui.replacer_config.no_matching_configs': 'No hay configuraciones coincidentes',
++    'ui.gui.replacer_config.search_configs': 'Buscar configuraciones...',
+     'ui.gui.replacer_config.ok': 'Aceptar',
+     'ui.gui.replacer_config.open_configs': 'Abrir configuraciones',
+     'ui.gui.replacer_config.optional_profile_name': 'Nombre de perfil opcional',
+diff --git a/src/fleasion/translations/fr.py b/src/fleasion/translations/fr.py
+index 378c32e..11c6d19 100644
+--- a/src/fleasion/translations/fr.py
++++ b/src/fleasion/translations/fr.py
+@@ -1645,6 +1645,8 @@ FRENCH: dict[str, str] = {
+     'ui.gui.replacer_config.new_name': 'Nouveau nom :',
+     'ui.gui.replacer_config.no_configs': 'Aucune configuration',
+     'ui.gui.replacer_config.no_configs_enabled': 'Aucune configuration activée',
++    'ui.gui.replacer_config.no_matching_configs': 'Aucune configuration correspondante',
++    'ui.gui.replacer_config.search_configs': 'Rechercher des configurations...',
+     'ui.gui.replacer_config.ok': 'OK',
+     'ui.gui.replacer_config.open_configs': 'Ouvrir les configurations',
+     'ui.gui.replacer_config.optional_profile_name': 'Nom de profil facultatif',
+diff --git a/src/fleasion/translations/kk.py b/src/fleasion/translations/kk.py
+index fbd815f..1b8dbf1 100644
+--- a/src/fleasion/translations/kk.py
++++ b/src/fleasion/translations/kk.py
+@@ -1645,6 +1645,8 @@ KAZAKH: dict[str, str] = {
+     'ui.gui.replacer_config.new_name': 'Жаңа атау:',
+     'ui.gui.replacer_config.no_configs': 'Конфигурациялар жоқ',
+     'ui.gui.replacer_config.no_configs_enabled': 'Қосылған конфигурациялар жоқ',
++    'ui.gui.replacer_config.no_matching_configs': 'Сәйкес конфигурациялар жоқ',
++    'ui.gui.replacer_config.search_configs': 'Конфигурацияларды іздеу...',
+     'ui.gui.replacer_config.ok': 'OK',
+     'ui.gui.replacer_config.open_configs': 'Конфигурацияларды ашу',
+     'ui.gui.replacer_config.optional_profile_name': 'Профиль атауы (міндетті емес)',
+diff --git a/src/fleasion/translations/pl.py b/src/fleasion/translations/pl.py
+index cdc39d5..6cfeb4b 100644
+--- a/src/fleasion/translations/pl.py
++++ b/src/fleasion/translations/pl.py
+@@ -1645,6 +1645,8 @@ POLISH: dict[str, str] = {
+     'ui.gui.replacer_config.new_name': 'Nowa nazwa:',
+     'ui.gui.replacer_config.no_configs': 'Brak konfiguracji',
+     'ui.gui.replacer_config.no_configs_enabled': 'Brak włączonych konfiguracji',
++    'ui.gui.replacer_config.no_matching_configs': 'Brak pasujących konfiguracji',
++    'ui.gui.replacer_config.search_configs': 'Szukaj konfiguracji...',
+     'ui.gui.replacer_config.ok': 'OK',
+     'ui.gui.replacer_config.open_configs': 'Otwórz konfiguracje',
+     'ui.gui.replacer_config.optional_profile_name': 'Opcjonalna nazwa profilu',
+diff --git a/src/fleasion/translations/pt.py b/src/fleasion/translations/pt.py
+index b115810..6f64dd4 100644
+--- a/src/fleasion/translations/pt.py
++++ b/src/fleasion/translations/pt.py
+@@ -1645,6 +1645,8 @@ PORTUGUESE: dict[str, str] = {
+     'ui.gui.replacer_config.new_name': 'Novo nome:',
+     'ui.gui.replacer_config.no_configs': 'Nenhuma configuração',
+     'ui.gui.replacer_config.no_configs_enabled': 'Nenhuma configuração ativada',
++    'ui.gui.replacer_config.no_matching_configs': 'Nenhuma configuração correspondente',
++    'ui.gui.replacer_config.search_configs': 'Pesquisar configurações...',
+     'ui.gui.replacer_config.ok': 'OK',
+     'ui.gui.replacer_config.open_configs': 'Abrir configurações',
+     'ui.gui.replacer_config.optional_profile_name': 'Nome do perfil opcional',
+diff --git a/src/fleasion/translations/ru.py b/src/fleasion/translations/ru.py
+index 2a61233..c630108 100644
+--- a/src/fleasion/translations/ru.py
++++ b/src/fleasion/translations/ru.py
+@@ -1645,6 +1645,8 @@ RUSSIAN: dict[str, str] = {
+     'ui.gui.replacer_config.new_name': 'Новое имя:',
+     'ui.gui.replacer_config.no_configs': 'Нет конфигураций',
+     'ui.gui.replacer_config.no_configs_enabled': 'Нет активных',
++    'ui.gui.replacer_config.no_matching_configs': 'Нет подходящих конфигураций',
++    'ui.gui.replacer_config.search_configs': 'Поиск конфигураций...',
+     'ui.gui.replacer_config.ok': 'ОК',
+     'ui.gui.replacer_config.open_configs': 'Открыть конфигурации',
+     'ui.gui.replacer_config.optional_profile_name': 'Необязательное имя профиля',
+diff --git a/src/fleasion/translations/tr.py b/src/fleasion/translations/tr.py
+index cd1af37..fff0ea3 100644
+--- a/src/fleasion/translations/tr.py
++++ b/src/fleasion/translations/tr.py
+@@ -1645,6 +1645,8 @@ TURKISH: dict[str, str] = {
+     'ui.gui.replacer_config.new_name': 'Yeni ad:',
+     'ui.gui.replacer_config.no_configs': 'Yapılandırma yok',
+     'ui.gui.replacer_config.no_configs_enabled': 'Etkin Yapılandırma Yok',
++    'ui.gui.replacer_config.no_matching_configs': 'Eşleşen yapılandırma yok',
++    'ui.gui.replacer_config.search_configs': 'Yapılandırma ara...',
+     'ui.gui.replacer_config.ok': 'Tamam',
+     'ui.gui.replacer_config.open_configs': 'Yapılandırmaları Aç',
+     'ui.gui.replacer_config.optional_profile_name': 'İsteğe bağlı profil adı',
+diff --git a/src/fleasion/translations/zh.py b/src/fleasion/translations/zh.py
+index 39a99e4..9ca145a 100644
+--- a/src/fleasion/translations/zh.py
++++ b/src/fleasion/translations/zh.py
+@@ -1645,6 +1645,8 @@ CHINESE: dict[str, str] = {
+     'ui.gui.replacer_config.new_name': '新名称：',
+     'ui.gui.replacer_config.no_configs': '无配置',
+     'ui.gui.replacer_config.no_configs_enabled': '未启用任何配置',
++    'ui.gui.replacer_config.no_matching_configs': '没有匹配的配置',
++    'ui.gui.replacer_config.search_configs': '搜索配置...',
+     'ui.gui.replacer_config.ok': '确定',
+     'ui.gui.replacer_config.open_configs': '打开配置目录',
+     'ui.gui.replacer_config.optional_profile_name': '配置方案名称（可选）',
+diff --git a/tests/test_replacer_config_menu.py b/tests/test_replacer_config_menu.py
+index 5a40a41..361e81f 100644
+--- a/tests/test_replacer_config_menu.py
++++ b/tests/test_replacer_config_menu.py
+@@ -286,3 +286,74 @@ def test_replacer_explains_portable_configs_asset_path(tmp_path, monkeypatch):
+     finally:
+         window.close()
+     assert app is not None
++
++
++def test_searchable_config_menu_filters_rows():
++    app = _qapp()
++    popup = _ScrollableConfigMenu(checkable=True, searchable=True)
++    popup.set_entries(
++        [
++            {'name': 'Sniper Skin Red', 'checked': False},
++            {'name': 'Sniper Skin Blue', 'checked': False},
++            {'name': 'Skybox Night', 'checked': True},
++        ],
++        minimum_width=120,
++    )
++    full_height = popup.scroll_area.height()
++    full_width = popup.scroll_area.width()
++    assert popup.search_edit is not None
++
++    popup.search_edit.setText('sniper')
++    assert popup.visible_names() == ['Sniper Skin Red', 'Sniper Skin Blue']
++    assert popup.scroll_area.height() < full_height
++    assert popup.scroll_area.width() == full_width
++
++    popup.search_edit.setText('BLUE sniper')
++    assert popup.visible_names() == ['Sniper Skin Blue']
++
++    popup.search_edit.setText('nothing here')
++    assert popup.visible_names() == []
++    assert popup._no_match_label is not None
++    assert not popup._no_match_label.isHidden()
++
++    popup.clear_search()
++    assert popup.visible_names() == ['Sniper Skin Red', 'Sniper Skin Blue', 'Skybox Night']
++    assert popup.scroll_area.height() == full_height
++    assert app is not None
++
++
++def test_searchable_config_menu_enter_toggles_first_match():
++    from PyQt6.QtGui import QKeyEvent
++
++    app = _qapp()
++    popup = _ScrollableConfigMenu(checkable=True, searchable=True)
++    popup.set_entries(
++        [{'name': 'Alpha', 'checked': False}, {'name': 'Beta', 'checked': False}],
++        minimum_width=120,
++    )
++    toggles = []
++    popup.item_toggled.connect(lambda name, checked: toggles.append((name, checked)))
++    assert popup.search_edit is not None
++    popup.search_edit.setText('bet')
++
++    event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Return, Qt.KeyboardModifier.NoModifier)
++    QApplication.sendEvent(popup.search_edit, event)
++
++    assert toggles == [('Beta', True)]
++
++    escape = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier)
++    QApplication.sendEvent(popup.search_edit, escape)
++    assert popup.search_edit.text() == ''
++    assert app is not None
++
++
++def test_search_keeps_filter_when_rows_are_rebuilt():
++    app = _qapp()
++    popup = _ScrollableConfigMenu(checkable=True, searchable=True)
++    entries = [{'name': 'Alpha', 'checked': False}, {'name': 'Beta', 'checked': False}]
++    popup.set_entries(entries, minimum_width=120)
++    assert popup.search_edit is not None
++    popup.search_edit.setText('alp')
++    popup.set_entries(entries, minimum_width=120)
++    assert popup.visible_names() == ['Alpha']
++    assert app is not None
+-- 
+2.43.0
+
