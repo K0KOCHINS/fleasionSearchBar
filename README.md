@@ -15,12 +15,52 @@ Adds a **search bar** to the config enabler dropdown in [Fleasion](https://githu
 
 | File | What it is |
 |---|---|
-| `fleasion-config-search.patch` | **Use this one.** The full change: the search bar, its text in all 10 of Fleasion's languages, and tests. |
-| `replacer_config.py` | Just the changed code file, for manual installs (see the bottom of this page). |
+| `Fleasion Search Bar.bat` | Double-click installer and launcher. No PowerShell needed. |
+| `Update Fleasion Search Bar.bat` | Double-click to update Fleasion and keep the search bar. |
+| `fleasion-config-search.patch` | The actual change: the search bar, its text in all 10 of Fleasion's languages, and tests. |
+| `replacer_config.py` | Just the changed code file, for manual installs. |
+| `.github/workflows/build.yml` | Automatically builds the ready-to-use `.exe` on the Releases page. |
 
 ---
 
 ## How to install (Windows)
+
+There are two ways to install it without typing any commands. **Option 1 is the easiest.**
+
+### Option 1: Download the .exe (easiest)
+
+1. Go to this repo's **[Releases page](https://github.com/K0KOCHINS/fleasionSearchBar/releases/latest)**.
+2. Under **Assets**, download the file named `Fleasion-SearchBar-...-Windows.exe`.
+3. **Exit your normal Fleasion first.** Right-click its tray icon and choose **Exit**.
+4. Double-click the downloaded `.exe`. That's it.
+
+Your configs carry over, because it uses the same config folder as normal Fleasion.
+
+> **Windows says "Windows protected your PC"?** That shows up for any app that isn't code-signed. Click **More info**, then **Run anyway**.
+>
+> **Fleasion says "Update Available"?** Click **Cancel**. Downloading the official update gives you a version without the search bar. Get the newest version from this repo's Releases page instead.
+
+### Option 2: Double-click installer
+
+Use this if you'd rather run Fleasion from its source code.
+
+1. Download [`Fleasion Search Bar.bat`](https://github.com/K0KOCHINS/fleasionSearchBar/raw/main/Fleasion%20Search%20Bar.bat). If your browser opens it as text instead, right-click the link and choose **Save link as**.
+2. **Exit your normal Fleasion first**, from its tray icon.
+3. Double-click `Fleasion Search Bar.bat`. If Windows warns you, click **More info** then **Run anyway**.
+
+The first time, it installs everything it needs (Git and uv) and sets up Fleasion with the search bar. This takes a few minutes; keep the window open. After that, **double-clicking the same file just starts Fleasion.** A black window stays open while Fleasion runs; you can minimize it but don't close it.
+
+To update later, download [`Update Fleasion Search Bar.bat`](https://github.com/K0KOCHINS/fleasionSearchBar/raw/main/Update%20Fleasion%20Search%20Bar.bat), put it in the **same folder** as `Fleasion Search Bar.bat`, and double-click it.
+
+### Where's the search bar?
+
+Open Fleasion's **Dashboard** and click the enabled-configs dropdown. That's the button that says *No Configs Enabled*, a config name, or *X Configs Enabled*. The search bar is at the top.
+
+---
+
+## Manual install with PowerShell (advanced)
+
+Only needed if both options above fail for you.
 
 > **Why the extra steps?** The Fleasion `.exe` from their Releases page is already compiled, so it can't be edited. Instead, you download Fleasion's source code, add the search bar, and run it from there. Your configs are kept: the source version uses the same config folder as the `.exe`.
 
@@ -75,7 +115,7 @@ Open the **Dashboard** and click the enabled-configs dropdown. That's the button
 
 ---
 
-## Starting it again later
+## Starting it again later (PowerShell install)
 
 Every time you want Fleasion with the search bar, open PowerShell and run:
 
@@ -97,7 +137,7 @@ The new `.exe` appears in the `dist` folder inside `Documents\Fleasion`.
 
 ---
 
-## Updating Fleasion without losing the search bar
+## Updating Fleasion without losing the search bar (PowerShell install)
 
 Don't use the official installer or auto-updater; that would replace your version with one that has no search bar. Run these instead:
 
@@ -112,6 +152,12 @@ uv run fleasion
 ---
 
 ## Troubleshooting
+
+**The `.bat` closes instantly or says `winget` is "not recognized"**
+Your Windows is missing the App Installer. Get it from the Microsoft Store (search "App Installer"), or use Option 1 instead.
+
+**The Releases page has no `.exe` yet**
+The build takes about 10 minutes after the repo is updated. Check back shortly.
 
 **`git` or `uv` is "not recognized"**
 You didn't open a new PowerShell after Step 1. Close it, open a new one, and try again.
@@ -132,7 +178,7 @@ You used the manual install below instead of the patch. Use the patch (Step 3) t
 
 ---
 
-## Manual install (advanced)
+## Manual install with replacer_config.py (advanced)
 
 Use this only if you can't get the patch to work. Do Steps 1–2, then copy `replacer_config.py` from this repo over:
 
@@ -162,4 +208,3 @@ This repo only adds the config search bar on top of their work. It's an **unoffi
 ## License
 
 Fleasion is licensed under the [GNU GPL v3.0](https://github.com/fleasion/Fleasion/blob/main/LICENSE). This add-on modifies Fleasion's code, so it's released under the same **GPL v3.0** license. See [`LICENSE`](LICENSE).
-CREDIT TO BUM _7lin
