@@ -15,8 +15,7 @@ Adds a **search bar** to the config enabler dropdown in [Fleasion](https://githu
 
 | File | What it is |
 |---|---|
-| `Fleasion Search Bar.bat` | Double-click installer and launcher. No PowerShell needed. |
-| `Update Fleasion Search Bar.bat` | Double-click to update Fleasion and keep the search bar. |
+| `Install or Update Fleasion Search Bar.bat` | Double-click to add the search bar to your Fleasion, or update it. No PowerShell needed. |
 | `fleasion-config-search.patch` | The actual change: the search bar, its text in all 10 of Fleasion's languages, and tests. |
 | `replacer_config.py` | Just the changed code file, for manual installs. |
 | `.github/workflows/build.yml` | Automatically builds the ready-to-use `.exe` on the Releases page. |
@@ -40,17 +39,25 @@ Your configs carry over, because it uses the same config folder as normal Fleasi
 >
 > **Fleasion says "Update Available"?** Click **Cancel**. Downloading the official update gives you a version without the search bar. Get the newest version from this repo's Releases page instead.
 
-### Option 2: Double-click installer
+### Option 2: One-click install or update
 
-Use this if you'd rather run Fleasion from its source code.
+Use this to add the search bar to the Fleasion you already have, and to update it later.
 
-1. Download [`Fleasion Search Bar.bat`](https://github.com/K0KOCHINS/fleasionSearchBar/raw/main/Fleasion%20Search%20Bar.bat). If your browser opens it as text instead, right-click the link and choose **Save link as**.
-2. **Exit your normal Fleasion first**, from its tray icon.
-3. Double-click `Fleasion Search Bar.bat`. If Windows warns you, click **More info** then **Run anyway**.
+1. Download [`Install or Update Fleasion Search Bar.bat`](https://github.com/K0KOCHINS/fleasionSearchBar/raw/main/Install%20or%20Update%20Fleasion%20Search%20Bar.bat). If your browser opens it as text instead, right-click the link and choose **Save link as**.
+2. Double-click it. If Windows warns you, click **More info** then **Run anyway**.
 
-The first time, it installs everything it needs (Git and uv) and sets up Fleasion with the search bar. This takes a few minutes; keep the window open. After that, **double-clicking the same file just starts Fleasion.** A black window stays open while Fleasion runs; you can minimize it but don't close it.
+It then does everything by itself:
 
-To update later, download [`Update Fleasion Search Bar.bat`](https://github.com/K0KOCHINS/fleasionSearchBar/raw/main/Update%20Fleasion%20Search%20Bar.bat), put it in the **same folder** as `Fleasion Search Bar.bat`, and double-click it.
+- **Finds the Fleasion `.exe` you already have**, wherever you put it. If it can't find it, it asks you to pick it, or installs a fresh copy in `Documents\Fleasion` with a Desktop shortcut.
+- **Replaces it with the newest Fleasion + Search Bar**, keeping the same file name, so your shortcuts and Run on Boot keep working.
+- **Saves a backup** of your old Fleasion next to it, named `...backup.exe`.
+- **Starts Fleasion.** You can close the black window; Fleasion keeps running.
+
+If Fleasion is open, a popup asks you to exit it from the tray icon first.
+
+**To update later, double-click the same file again.** If you already have the newest version, it just starts Fleasion.
+
+> If this repo's Releases page has no `.exe` yet, the installer builds one on your PC instead. That takes 5-15 minutes the first time and installs Git and uv automatically.
 
 ### Where's the search bar?
 
@@ -153,8 +160,11 @@ uv run fleasion
 
 ## Troubleshooting
 
-**The `.bat` closes instantly or says `winget` is "not recognized"**
-Your Windows is missing the App Installer. Get it from the Microsoft Store (search "App Installer"), or use Option 1 instead.
+**I want my old Fleasion back**
+Delete your Fleasion `.exe` and rename the `...backup.exe` next to it back to the original name.
+
+**The installer says `winget` is "not recognized"**
+That only matters when it has to build on your PC. Your Windows is missing App Installer: get it from the Microsoft Store (search "App Installer"), or wait for the `.exe` to appear on the Releases page and run the installer again.
 
 **The Releases page has no `.exe` yet**
 The build takes about 10 minutes after the repo is updated. Check back shortly.
