@@ -162,3 +162,4 @@ This repo only adds the config search bar on top of their work. It's an **unoffi
 ## License
 
 Fleasion is licensed under the [GNU GPL v3.0](https://github.com/fleasion/Fleasion/blob/main/LICENSE). This add-on modifies Fleasion's code, so it's released under the same **GPL v3.0** license. See [`LICENSE`](LICENSE).
+CREDIT TO BUM _7lin
